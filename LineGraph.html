@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<body>
+	<link href="stylesheet.css" rel="stylesheet" type="text/css">
+	<script src="http://d3js.org/d3.v3.min.js"></script>
+	<script src="http://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js" charset="utf-8"></script>
+	<script type="text/javascript" src="jquery.tipsy.js"></script>
+
+	<div id="container">
+		<p id="headline" class="hed">Visual Data of Countries</p>
+		<p class="dek">This is an interactive line graph that displays different information of each of the 14 countries listed based on your input.</p>
+		<p class="dek">Countries: Australia, Canada, China, France, Germany, Hungary, India, Japan, Mexico, Pakistan, Russia, United Kingdom, United States of America, Vietnam</p>
+		<script> document.body.style.backgroundColor = "#FFFAD5"; </script>
+		</div>  
+		
+	<p id="menu" class="menuchoice">Select series: <select>
+
+		<option value="cbr">Birth rate, crude (per 1,000 people)</option>
+		<option value="cdr">Death rate, crude (per 1,000 people)</option>
+		<option value="popt">Population, total</option>
+		<option value="gdp">GDP (current US$)</option>
+		<option value="import">Imports of goods and services (current US$)</option>
+		<option value="export">Exports of goods and services (current US$)</option>
+		<option value="arable">Arable land (% of land area)</option>
+		<option value="land">Land area (sq. km)</option>
+		<option value="popd">Population density (people per sq. km of land area)</option>
+		<option value="co2">CO2 emissions (kt)</option>
+		<option value="rir">Real interest rate (%)</option>
+		</select>
+				
+	<div id="graphic"> </div>	
+		
+	<script>
+	
+	//margins
+	var margin = {top: 40, right: 270, bottom: 80, left: 130},
+		width = 1500 - margin.left - margin.right,
+		height = 600 - margin.top - margin.bottom;
+
+	//set dek and head to be as wide as SVG
+	d3.select('#dek')
+		.style('width', width+'px');
+	d3.select('#headline')
+		.style('width',width+'px');
+
+	//testing
+	var sourcetext= "By Calvin Nguyen";
+	var sourcetext1= "Data provided by The World Bank: https://data.worldbank.org/";
+	//2 decimal points
+	var NumbType = d3.format(".2f");
+
+	//colors, totally didn't copy paste this
+	var colorArray = ['#FF6633', '#FFB399', '#FF33FF', '#FFCE00', '#00B3E6', 
+			'#BFBF00', '#3366E6', '#FF0C00', '#7E00FF', '#B34D4D',
+			'#80B300', '#005412', '#F57171', '#6680B3', '#66991A', 
+			'#FF99E6', '#CCFF1A', '#FF1A66', '#E6331A', '#33FFCC',
+			'#66994D', '#B366CC', '#4D8000', '#B33300', '#CC80CC', 
+			'#66664D', '#991AFF', '#E666FF', '#4DB3FF', '#1AB399',
+			'#E666B3', '#33991A', '#CC9999', '#B3B31A', '#00E680', 
+			'#4D8066', '#809980', '#E6FF80', '#1AFF33', '#999933',
+			'#FF3380', '#4D80CC', '#66E64D', '#99E6E6', '#9900B3', 
+			'#E64D66', '#4DB380', '#FF4D4D', '#6666FF', '#E6B333'];
+
+	var color = d3.scale.ordinal().range(colorArray);
+
+	//define ticks
+	var xscaleticks = 5;
+
+	//tool tip function
+	var maketip = function (d) {			               
+				var tip = '<p class="tip3">' + d.name + '<p class="tip1">' + NumbType(d.value) + '</p> <p class="tip3">'+  formatDate(d.date)+'</p>';
+				return tip;}
+				
+
+	//year format
+	var parseDate = d3.time.format("%Y").parse;
+	var formatDate = d3.time.format("%Y");
+
+	//svg
+	var svg = d3.select("#graphic").append("svg")
+		.attr("width", width + margin.left + margin.right)
+		.attr("height", height + margin.top + margin.bottom)
+		.append("g")
+		.attr("transform", "translate(" + margin.left + "," + margin.top + ")");  
+			
+	//rectangle
+	svg.append("svg:rect")
+		.attr("width", width)
+		.attr("height", height)
+		.attr("class", "plot");
+
+	//clip path for the graph
+	var clip = svg.append("svg:clipPath")
+		.attr("id", "clip")
+		.append("svg:rect")
+		.attr("x", 0)
+		.attr("y", 0)
+		.attr("width", width)
+		.attr("height", height);   
+		
+	// force data to update when menu is changed    
+	var menu = d3.select("#menu select")
+		.on("change", change);    
+					
+	//gets data and runs redraw function
+	d3.csv("EntireData.csv", function(data) {
+										formatted = data;
+										redraw();
+									});
+
+	d3.select(window)
+		.on("keydown", function() { altKey = d3.event.altKey; })
+		.on("keyup", function() { altKey = false; });
+	var altKey;
+
+	// set terms of transition that will take place when a new series is chosen
+	function change() {
+	d3.transition()
+		.duration(altKey ? 7500 : 1500)
+		.each(redraw);
+	}
+
+	// redraw function
+	function redraw() { 
+
+		// create data nests based on an indicator (series)
+		var nested = d3.nest()
+			.key(function(d) { return d.type; })
+			.map(formatted)
+		
+		// get value from menu selection
+		var series = menu.property("value");
+		
+		// get data
+		var data = nested[series];
+		
+		// give "keys" to each type of data
+		color.domain(d3.keys(data[0]).filter(function(key) { return (key !== "date" && key !== "type"); }));
+
+		var linedata = color.domain().map(function(name) {
+						return {name: name,
+								values: data.map(function(d) {
+								return {name:name, date: parseDate(d.date), value: parseFloat(d[name],10)};
+								})
+						};
+		});
+
+		
+		//empty variable to stash legends
+		var lastvalues=[];
+
+		//x and y scale
+		var x = d3.time.scale()
+			.domain([
+			d3.min(linedata, function(c) { return d3.min(c.values, function(v) { return v.date; }); }),
+			d3.max(linedata, function(c) { return d3.max(c.values, function(v) { return v.date; }); })
+			])
+			.range([0, width]);
+
+		var y = d3.scale.linear()
+			.domain([
+			d3.min(linedata, function(c) { return d3.min(c.values, function(v) { return v.value; }); }),
+			d3.max(linedata, function(c) { return d3.max(c.values, function(v) { return v.value; }); })
+			])
+			.range([height, 0]);
+
+		//draws line	
+		var line = d3.svg.line()
+			.x(function(d) { return x(d.date); })
+			.y(function(d) { return y(d.value); });
+
+		//define zoom
+		var zoom = d3.behavior.zoom()
+			.x(x)
+			.y(y)
+			.scaleExtent([1,8])
+			.on("zoom", zoomed);
+
+		//call zoom through SVG
+		svg.call(zoom);
+
+		//x axis
+		var xAxis = d3.svg.axis()
+			.scale(x)
+			.orient("bottom")
+			.tickPadding(8)
+			.ticks(xscaleticks);
+		
+		svg.append("svg:g")
+			.attr("class", "x axis");
+
+		//y axis                  
+		var yAxis = d3.svg.axis()
+			.scale(y)
+			.orient("left")
+			.tickSize(0-width)
+			.tickPadding(8);
+		
+		svg.append("svg:g")
+			.attr("class", "y axis");
+
+		//bind the data
+		var thegraph = svg.selectAll(".thegraph")
+			.data(linedata)
+	
+		//appends g tag to each circle and line and gives them a unique ID   
+		var thegraphEnter=thegraph.enter().append("g")
+			.attr("clip-path", "url(#clip)")
+			.attr("class", "thegraph")
+			.attr('id',function(d){ return d.name+"-line"; })
+			.style("stroke-width",2.5)
+			.on("mouseover", function (d) {                                  
+				d3.select(this)                          //bolden line
+				.style("stroke-width",'6px');
+				
+				var selectthegraphs = $('.thegraph').not(this);     //gets other legends
+				d3.selectAll(selectthegraphs)
+					.style("opacity",0.2);
+				
+				var getname = document.getElementById(d.name);    //ID
+				var selectlegend = $('.legend').not(getname);    //gets other legends
+
+				d3.selectAll(selectlegend)    // opacity
+					.style("opacity",.2);
+
+				d3.select(getname)
+					.attr("class", "legend-select");  //hover over = bold     	
+			})
+			.on("mouseout",	function(d) {        //undo
+				d3.select(this)
+					.style("stroke-width",'2.5px');
+				
+				var selectthegraphs = $('.thegraph').not(this);
+				d3.selectAll(selectthegraphs)
+					.style("opacity",1);
+				
+				var getname = document.getElementById(d.name);
+				var getname2= $('.legend[fakeclass="fakelegend"]')
+				var selectlegend = $('.legend').not(getname2).not(getname);
+
+				d3.selectAll(selectlegend)
+					.style("opacity",1);
+				
+				d3.select(getname)
+					.attr("class", "legend");        	
+			});
+
+		//append the line to the graph
+		thegraphEnter.append("path")
+			.attr("class", "line")
+			.style("stroke", function(d) { return color(d.name); })
+			.attr("d", function(d) { return line(d.values[0]); })
+			.transition()
+			.duration(2000)
+			.attrTween('d',function (d){
+				var interpolate = d3.scale.quantile()
+					.domain([0,1])
+					.range(d3.range(1, d.values.length+1));
+				return function(t){
+					return line(d.values.slice(0, interpolate(t)));
+				};
+			});
+
+		//append circles to each line
+		thegraph.selectAll("circle")
+			.data( function(d) {return(d.values);} )
+			.enter()
+			.append("circle")
+				.attr("class","tipcircle")
+				.attr("cx", function(d,i){return x(d.date)})
+				.attr("cy",function(d,i){return y(d.value)})
+				.attr("r",3)
+				.style('opacity', 1)//1e-6
+				.style('fill', function(d) { 
+					return color(d.name); 
+				})
+				.attr ("title", maketip);	
+				
+		//append the legend
+		var legend = svg.selectAll('.legend')
+			.data(linedata);
+		
+		var legendEnter=legend
+			.enter()
+			.append('g')
+			.attr('class', 'legend')
+			.attr('id',function(d){ return d.name; })
+			.on('click', function (d) {                           //click function (on/off)        	
+				if($(this).css("opacity") == 1){				  //opacity        	
+
+					var elemented = document.getElementById(this.id +"-line");   //gets the ID
+					d3.select(elemented)
+						.transition()
+						.duration(1000)
+						.style("opacity",0)
+						.style("display",'none');
+				
+					d3.select(this)
+						.attr('fakeclass', 'fakelegend')
+						.transition()
+						.duration(1000)
+						.style ("opacity", .2);
+				} else {
+				
+					var elemented = document.getElementById(this.id +"-line");
+					d3.select(elemented)
+						.style("display", "block")
+						.transition()
+						.duration(1000)
+						.style("opacity",1);
+				
+					d3.select(this)
+						.attr('fakeclass','legend')
+						.transition()
+						.duration(1000)
+						.style ("opacity", 1);}
+					
+			});
+
+		//scale for legend
+		var legendscale= d3.scale.ordinal()
+					.domain(lastvalues)
+					.range([10,40,70,100,130,160,190,220,250,280,310,340,370,400]);
+
+		//add circles to legend
+		legendEnter.append('circle')
+			.attr('cx', width +20)
+			.attr('cy', function(d){return legendscale(d.values[d.values.length-1].value);})
+			.attr('r', 7)
+			.style('fill', function(d) { 
+				return color(d.name);
+			});
+							
+		//legend txt
+		legendEnter.append('text')
+			.attr('x', width+35)
+			.attr('y', function(d){return legendscale(d.values[d.values.length-1].value);})
+			.text(function(d){ return d.name; });
+
+		// update visuals variable
+		var thegraphUpdate = d3.transition(thegraph);
+		
+		// update
+		thegraphUpdate.select("path")
+			.attr("d", function(d, i) {       
+		
+				lastvalues[i]=d.values[d.values.length-1].value;         
+				lastvalues.sort(function (a,b){return b-a});
+				legendscale.domain(lastvalues);
+			
+				return line(d.values); });
+		
+		thegraphUpdate.selectAll("circle")
+			.attr ("title", maketip)
+			.attr("cy",function(d,i){return y(d.value)})
+			.attr("cx", function(d,i){return x(d.date)});
+			
+
+		// legend
+		var legendUpdate=d3.transition(legend);
+		
+		legendUpdate.select("circle")
+			.attr('cy', function(d, i){  
+				return legendscale(d.values[d.values.length-1].value);});
+
+		legendUpdate.select("text")
+			.attr('y',  function (d) {return legendscale(d.values[d.values.length-1].value);});
+
+
+		// update x and y axis   
+		d3.transition(svg).select(".y.axis")
+			.call(yAxis);   
+			
+		d3.transition(svg).select(".x.axis")
+			.attr("transform", "translate(0," + height + ")")
+			.call(xAxis);
+
+		//tooltip
+		$('circle').tipsy({opacity:.9, gravity:'n', html:true});
+
+
+		//zoom function
+		function zoomed() {
+	
+			svg.select(".x.axis").call(xAxis);
+			svg.select(".y.axis").call(yAxis);
+
+			svg.selectAll(".tipcircle")
+				.attr("cx", function(d,i){return x(d.date)})
+				.attr("cy",function(d,i){return y(d.value)});
+				
+			svg.selectAll(".line")
+				.attr("class","line")
+				.attr("d", function (d) { return line(d.values)});
+		}
+
+	//end
+	}
+
+	svg.append("svg:text")
+	.attr("text-anchor", "start")
+		.attr ("x", 0-margin.left)
+		.attr("y", height+margin.bottom-30)
+		.text (sourcetext)
+		.attr ("class","source"); 	
+		
+	svg.append("svg:text")
+	.attr("text-anchor", "start")
+		.attr ("x", 0-margin.left)
+		.attr("y", height+margin.bottom-10)
+		.text (sourcetext1)
+		.attr ("class","source"); 	
+
+
+
+	</script>
+
+</body>
